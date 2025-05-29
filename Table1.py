@@ -8,23 +8,19 @@ from matplotlib import cm
 from Homotopy_Methods import ZOSLGH_d, ZOSLGH_r, STD_Homotopy
 from Smoothing_Methods import exp_gs_adapt, ZO_AdaMM, ZO_SGD, evaluate_gs, power_gs_baseline
 from Objective_functions import Rosenbrock, plot_Rosenbrock, Ackley, plot_Ackley, objective_2log, plot_obj_2log
-from pyswarms.single.global_best import GlobalBestPSO
-from bayes_opt import BayesianOptimization
+import cma
 
-############## - Figure 4(b)
-plot_Rosenbrock(savefig=True)
 
-############## ---- Table 2
 #Set common parameters for compared algos
 dim_num = 2
-generation_num = 1000
+generation_num = 200
 repeat_num = 100
-pop_size = 100 #number of randomly sampled points used for each parameter update
-true_sol = np.array([1.0, 1.0])
-smooth_param_candidates = [1.0,2.0] 
-learning_rates = [0.2, 0.1, 0.01, 0.001, 0.0001]
-objective = Rosenbrock
-initial_guesses = np.random.multivariate_normal(mean=[-3.0,2.0],cov=0.01*np.eye(2),size=repeat_num)
+pop_size = 10 #number of randomly sampled points used for each parameter update
+true_sol = np.array([0.0,0.0])
+smooth_param_candidates = [0.1, 1.0, 2.0] 
+learning_rates = [0.1, 0.001]
+objective = Ackley
+initial_guesses = np.random.normal(loc=5.0,scale=0.01,size=(100,2))
 
 #exponential Gaussian smoothing
 final_fit = -1000
@@ -33,8 +29,8 @@ final_mse = 1e5
 final_index = -1
 final_params = {"lr":-1,"smooth_param":-1,"N":-1}
 
-for N in [1,2,3]:
-    for lr in learning_rates:#learning_rates:
+for N in [1,2.0,3.0]:
+    for lr in learning_rates:
         for sp in smooth_param_candidates:
             mu_times = [] #number of iterations taken to achieve the best mu
             mu_fit = []
@@ -80,18 +76,14 @@ print("Time to best:", final_index)
 print("mse:", final_mse)
 print(final_params)
 
-
 #power Gaussian smoothing
-final_fit = -1e20
+final_fit = -1000
 final_solution = [-10.0,-10.0]
 final_mse = 1e5
 final_index = -1
 final_params = {"lr":-1,"smooth_param":-1,"N":-1}
 
-def pgs_objective(sol):
-    return objective(sol)+12000
-
-for N in [1,3,5,]:
+for N in [5,10,20,30]:
     for lr in learning_rates:
         for sp in smooth_param_candidates:
             mu_times = [] #number of iterations taken to achieve the best mu
@@ -103,7 +95,7 @@ for N in [1,3,5,]:
                 mu_log = power_gs_baseline(
                             init_mu=init_guess, 
                             dim=dim_num, 
-                            fitness_fcn=pgs_objective,
+                            fitness_fcn=objective,
                             init_lr=lr, 
                             sigma=sp,
                             power=N,
@@ -137,7 +129,7 @@ print(final_params)
 
 
 #Standard Homotopy
-final_fit = -1e20
+final_fit = -1000
 final_solution = [-10.0,-10.0]
 final_mse = 1e5
 final_index = -1
@@ -190,15 +182,16 @@ print("mse:", final_mse)
 print(final_params)
 
 
+
 #ZOSLGH_d
-final_fit = -1e20
+final_fit = -1000
 final_solution = [-10.0,-10.0]
 final_mse = 1e5
 final_index = -1
 final_params = {"beta":-1, "eta":-1, "smooth_param":-1, "gamma":-1}
 for beta in learning_rates:
     for eta in [0.1,0.01,0.001]:
-        for gamma in [0.99,0.999,0.995]:
+        for gamma in [0.99,0.95]:
             for sp in smooth_param_candidates:
                 mu_times = [] #number of iterations taken to achieve the best mu
                 mu_fit = []
@@ -242,14 +235,15 @@ print("mse:", final_mse)
 print(final_params)
 
 
+
 #ZOSLGH_r
-final_fit = -1e20
+final_fit = -1000
 final_solution = [-10.0,-10.0]
 final_mse = 1e5
 final_index = -1
 final_params = {"beta":-1, "smooth_param":-1, "gamma":-1}
 for beta in learning_rates:
-    for gamma in [0.99,0.999,0.995]:
+    for gamma in [0.999,0.995]:
         for sp in smooth_param_candidates:
             mu_times = [] #number of iterations taken to achieve the best mu
             mu_fit = []
@@ -291,8 +285,9 @@ print("mse:", final_mse)
 print(final_params)
 
 
+
 #ZO_AdaMM
-final_fit = -1e20
+final_fit = -1000
 final_solution = [-10.0,-10.0]
 final_mse = 1e5
 final_index = -1
@@ -300,8 +295,8 @@ final_params = {"lr":-1,"smooth_param":-1,"beta1":-1,"beta2":-1}
 
 for lr in learning_rates:
     for sp in smooth_param_candidates:
-        for b1 in [0.5,0.9]:
-            for b2 in [0.1,0.5]:
+        for b1 in [0.5,0.7,0.9]:
+            for b2 in [0.1,0.3,0.5]:
                 mu_times = [] #number of iterations taken to achieve the best mu
                 mu_fit = []
                 mse_list = []
@@ -347,7 +342,7 @@ print(final_params)
 
 
 #ZO_SGD
-final_fit = -1e20
+final_fit = -1000
 final_solution = [-10.0,-10.0]
 final_mse = 1e5
 final_index = -1
@@ -395,60 +390,61 @@ print("mse:", final_mse)
 print(final_params)
 
 
-# PSO
-def pso_objective(sol):
-    """
-    pso_objective process multiple solutions at the same time and finds the minimum.
-    """
-    return -objective(sol)
 
-# Set-up hyperparameters
-r = np.random.RandomState(0)
-cognitive = [0.2, 0.5, 0.8] # 0.5, 0.8
-social = [0.2, 0.5, 0.8] # 0.5, 0.8
-inertia = [0.2, 0.5, 0.8] # 0.5, 0.8
-best_record = -1000000
+#CMA-ES
+dim_num = 2
+generation_num = 200
+repeat_num = 100
+pop_size = 10 #number of randomly sampled points used for each parameter update
+true_sol = np.array([0.0,0.0])
+initial_guesses = np.random.normal(loc=5.0,scale=0.01,size=(100,2))
 
-final_fit = -1e20
-final_solution = [-10.0,-10.0]
-final_mse = -1.0
+final_fit = -1000
+final_solution = [-5,-5]
+final_mse = 1e5
 final_index = -1
-final_params = {}
+final_params = {"sigma0":-1,"initial_cov":-1}
 
-for c1 in cognitive:
-    for c2 in social:
-        for c3 in inertia:
-            options = {'c1': c1, 'c2': c2, 'w':c3}
-            mu_times = [] #number of iterations taken to achieve the best mu
-            mu_fit = []
-            mse_list = []
-            mu_list = []
-            for i in range(repeat_num):
-                pso_init_population = r.multivariate_normal(mean=[-3.0,2.0], cov=0.01*np.eye(dim_num), 
-                                                            size=pop_size)
-                # Call instance of PSO (single objective)
-                optimizer = GlobalBestPSO(n_particles=pop_size, 
-                                      dimensions=dim_num, 
-                                      options=options,
-                                      init_pos=pso_init_population
-                                     )
-                # Perform optimization
-                best_cost, best_sol = optimizer.optimize(pso_objective, iters=generation_num,verbose=False)
-                best_fit = -best_cost
-                best_index = np.argmin(optimizer.cost_history)
-                best_mse = np.mean((best_sol-true_sol)**2)
-                
-                mu_times.append(best_index) #number of iterations taken to achieve the best mu
-                mu_fit.append(best_fit)
-                mse_list.append(best_mse) 
-                mu_list.append(best_sol)
-                
-            if np.mean(mu_fit)>final_fit:
-                final_solution = np.mean(mu_list,axis=0)
-                final_index = np.mean(mu_times)
-                final_mse = np.mean(mse_list)
-                final_fit = np.mean(mu_fit)
-                final_params = options
+def objective(x):
+    return -Ackley(x)  #x should be an np.2darray (a list of solutions)
+
+for sigma0 in [0.5,1.0,1.5]:
+    for initial_cov in [1.0]:#learning_rates:
+        mu_times = [] #number of iterations taken to achieve the best mu
+        mu_fit = []
+        mse_list = []
+        mu_list = []
+
+        opts = {
+        'popsize': pop_size,    
+        'verb_disp': 0
+        }
+            
+        for init_guess in initial_guesses:
+            mu_log = []  #for storing the best sol in each iteration
+            cma_es = cma.CMAEvolutionStrategy(init_guess, sigma0, opts)
+            for i in range(generation_num):#range():
+                sol_candidates = np.array(cma_es.ask())  #generate solution_candidates using the current model parameters (e.g., the cov matrix)
+                loss_values = -Ackley(sol_candidates)    #Input to Ackley should be an np.2darray (a list of solutions)
+                cma_es.tell(sol_candidates, loss_values) #update model parameters
+                mu_log.append(cma_es.result.xbest)       #the best sol up to the current iteration
+            
+            best_index, best_sol, best_fit, best_mse = evaluate_gs(mu_log, Ackley, 
+                                                                   true_sol, verbose=True)
+            mu_times.append(best_index) #number of iterations taken to achieve the best mu
+            mu_fit.append(best_fit)
+            mse_list.append(best_mse) 
+            mu_list.append(best_sol)
+            print(" ")
+            
+            
+        if np.mean(mse_list)<final_mse:
+            final_solution = np.mean(mu_list,axis=0)
+            final_index = np.mean(mu_times)
+            final_mse = np.mean(mse_list)
+            final_fit = np.mean(mu_fit)
+            final_params["sigma0"] = sigma0
+            final_params["initial_cov"] = initial_cov
 
 print(" ")
 print("Final Solution:", final_solution.round(3))

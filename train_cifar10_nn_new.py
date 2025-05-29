@@ -76,7 +76,7 @@ def train(data, file_name, params, num_epochs=50, batch_size=128, train_temp=1, 
     model.add(Dense(10))
 
     if init != None:
-        model.load_weights(init)
+        model.load_weights(init+".keras")
 
     def fn(correct, predicted):
         return tf.nn.softmax_cross_entropy_with_logits(labels=correct,
@@ -99,7 +99,7 @@ def train(data, file_name, params, num_epochs=50, batch_size=128, train_temp=1, 
     
 
     if file_name != None:
-        model.save(file_name)
+        model.save(file_name+".keras")
 
     return model
 

@@ -9,16 +9,18 @@ from mpl_toolkits.mplot3d import axes3d
 from matplotlib.axes import Axes as ax
 from Smoothing_Methods import exp_gs, ZO_AdaMM, ZO_SGD
 from Homotopy_Methods import ZOSLGH_d, ZOSLGH_r, STD_Homotopy
+#from pyswarms.single.global_best import GlobalBestPSO
+#from bayes_opt import BayesianOptimization
 import tensorflow as tf
 from train_mnist_nn_new import MNIST,train_distillation
+import cma
+
 
 def calini_wagner_loss(image,x,t,c_coef,classifier,kappa=-10): 
     """
-    This function computes the L2 loss function defined by Calini and Wagner (2017) Section IV A
-    used for targeted adversarial attack. The loss function is
-    || (1/2)*(tanh(w)+1)-image ||**2 + c_coef*f( (1/2)*(tanh(w)+1) ), where
-    f(Z) = max_{i!=t} Z_i - Z_t. 
-    Note that the smaller f(Z) is, the larger the probability of t is.
+    This loss function resembles the L2 loss function defined by Calini and Wagner (2017) Section IV A
+    used for targeted adversarial attack. The loss function is defined as in Section 5.3 in our paper
+    
     
     Inputs.
     --------
@@ -48,6 +50,7 @@ def calini_wagner_loss(image,x,t,c_coef,classifier,kappa=-10):
     cw_loss = logit_diff+c_coef*distortion_norm  #calini_wagner_loss
     return cw_loss
 
+
 #A robust cnn (distilled cnn)
 d = MNIST()
 mnist_nn = train_distillation(data=d, 
@@ -60,6 +63,7 @@ y_test = d.test_labels
 test_loss, test_accuracy = mnist_nn.evaluate(d.test_data, d.test_labels)
 print(f"Test Loss: {test_loss}, Test Accuracy: {test_accuracy}")
 
+
 #Settings
 c_coef = 1.0   #coefficient used when computing the loss
 r = np.random.RandomState(0)
@@ -67,6 +71,7 @@ selected_image_indices = r.choice(range(len(x_test)),replace=False,size=100)
 pop_size = 10  #number of sampleds used to approximate the gradient
 state_dim = 28*28  #dimension of the search space (space of flatten images)
 generation_num = 1500  #number of total solution updates
+
 
 def evaluation(solution_log, image, classifier, t, kappa=-10):
     solution_log = np.array(solution_log)
@@ -80,7 +85,10 @@ def evaluation(solution_log, image, classifier, t, kappa=-10):
     sucess_indicators = (logit_diff<=kappa)
     if np.sum(sucess_indicators)==0:
         print("No successful solutions!")
-        return [np.nan]*3
+        return [np.nan]*4
+        print(" ")
+        print(" ")
+        
     sol_norms_time = sol_norms_time[sucess_indicators]
     best_sol_index_among_success_sols = np.argmin(sol_norms_time[:,0]) #index of best sol among the sucessful solutions
     best_sol_index = int(sol_norms_time[best_sol_index_among_success_sols,1])  #number of iterations passed til the best sol
@@ -90,19 +98,76 @@ def evaluation(solution_log, image, classifier, t, kappa=-10):
     best_cost = calini_wagner_loss(image=image,x=best_sol.reshape([1,-1]),t=t,
                                    c_coef=c_coef,classifier=classifier,kappa=kappa)
     r2 = r2_score(image.flatten(),distorted_images[best_sol_index].flatten())
-    print("best sol norm",round(np.sqrt(np.sum(best_sol**2)),4))
+    best_sol_norm = np.sqrt(np.sum(best_sol**2))
+    print("best sol norm",round(best_sol_norm,4))
     print("Calini_Wagner Loss", best_cost)
     print("logit_diff:",logit_diff_of_best)
     print("r2 score:",r2)
     print("target label",t,"predicted label",np.argmax(pred[best_sol_index]))
     print("time to the best",best_sol_index)
     print(" ")
-    return [best_sol_index, r2, logit_diff_of_best]
+    return [best_sol_index, r2, logit_diff_of_best, best_sol_norm]
+
+
+
+    # CMA-ES
+logit_diff_log =[]
+r2_list = []
+times = [] #number of iterations taken to achieve the best mu for each image
+best_perturbation_norm_list = []
+image_count = 1
+
+for i in selected_image_indices:
+    image = x_test[i]
+    label = np.argmax(y_test[i])
+    pred = mnist_nn.predict(image.reshape((1,28,28,1)))[0]
+    t = np.argmin(pred)
+    print("image_count:", image_count, "image_num:",i, 't:',t,'true_label:',label)
+    image_count += 1
+    #t = r.choice(list(range(0,label))+list(range(label+1,10)))
+    mu_log = []
+    
+    def objective(x):
+        loss = calini_wagner_loss(image=image,x=x,t=t,c_coef=c_coef,classifier=mnist_nn,kappa=-0.001)
+        return loss
+
+    opts = {
+            'popsize': pop_size,    
+            'verb_disp': 0
+    }
+    cma_es = cma.CMAEvolutionStrategy(np.array([0.0]*state_dim), #init guess
+                                      0.05, opts)
+    #cma_es.optimize(objective, callback=store_best, iterations=generation_num) 
+    for i in range(generation_num):
+        sol_candidates = np.array(cma_es.ask())  #generate solution_candidates using the current model parameters (e.g., the cov matrix)
+        loss_values = objective(sol_candidates)   
+        cma_es.tell(sol_candidates, loss_values) #update model parameters
+        mu_log.append(cma_es.result.xbest)       #the best sol up to the current iteration
+    [best_sol_time, r2, logit_diff, best_perturb_norm] = evaluation(mu_log,image,mnist_nn,t,kappa=-0.001)
+
+    #log results
+    logit_diff_log.append(logit_diff)
+    r2_list.append(r2)
+    times.append(best_sol_time) 
+    best_perturbation_norm_list.append(best_perturb_norm)
+
+#Summary Results
+cmaes_res = pd.DataFrame({
+                         "r2":r2_list,"time to achieve best":times, 
+                         "success":(np.array(logit_diff_log)<-0.001).astype(int),
+                         "time":times,
+                         "best_perturb_norm":best_perturbation_norm_list
+                   })
+
+#cmaes_res.to_csv("cmaes_mnist_"+str(generation_num)+".csv",index=False)
+cmaes_res.describe()
+
 
 #ZO_SGD
 logit_diff_log =[]
 r2_list = []
 times = [] #number of iterations taken to achieve the best mu for each image
+best_perturbation_norm_list = []
 image_count = 1
 for i in selected_image_indices:
     image = x_test[i]
@@ -125,31 +190,36 @@ for i in selected_image_indices:
                             total_step_limit=generation_num 
                    )
     
-    [best_sol_time, r2, logit_diff] = evaluation(solution_log,image,mnist_nn,t,kappa=-0.001)
+    [best_sol_time, r2, logit_diff, best_perturb_norm] = evaluation(solution_log,image,mnist_nn,t,kappa=-0.001)
 
     #log results
     logit_diff_log.append(logit_diff)
     r2_list.append(r2)
     times.append(best_sol_time) 
+    best_perturbation_norm_list.append(best_perturb_norm)
+    
 
 #Summary Results
 zosgd_res = pd.DataFrame({
                          "r2":r2_list,"time to achieve best":times, 
                          "success":(np.array(logit_diff_log)<-0.001).astype(int),
-                         "time":times
+                         "time":times,
+                         "best_perturb_norm":best_perturbation_norm_list
                    })
 
 #zosgd_res.to_csv("zosgd_mnist_"+str(generation_num)+".csv",index=False)
 zosgd_res.describe()
 
+
 #exponential Gaussian smooth - hardest attack
-N = 0.02
+N = 0.05
 sol_logit_diff_log = []
 sol_r2_list = []
 sol_times = [] #number of iterations taken to achieve the best solution for each image
 mu_logit_diff_log =[]
 mu_r2_list = []
 mu_times = [] #number of iterations taken to achieve the best mu for each image
+best_perturbation_norm_list = []
 image_count = 1
 
 for i in selected_image_indices:#[[13,46,54,55,57,76]]:
@@ -167,7 +237,7 @@ for i in selected_image_indices:#[[13,46,54,55,57,76]]:
         return -loss
     
     #init_x = r.multivariate_normal(mean=[0.0]*state_dim,cov=np.identity(state_dim)*0.0000001,size=1)
-    mu_log = mu_log = exp_gs(
+    mu_log = exp_gs(
                      init_mu=np.array([0]*state_dim),     #np.1darray, initial value of mu.
                      dim=state_dim,         #int, dimention number of the mu space.  
                      fitness_fcn=calini_wagner_fit, #the original objective function f to be maximized.
@@ -179,16 +249,18 @@ for i in selected_image_indices:#[[13,46,54,55,57,76]]:
                     )
         
     print("image:",i)
-    mu_time, r2, logit_diff_of_best = evaluation(mu_log,image,mnist_nn,t,kappa=-0.001)
+    mu_time, r2, logit_diff_of_best, best_perturb_norm = evaluation(mu_log,image,mnist_nn,t,kappa=-0.001)
     #log results
     mu_logit_diff_log.append(logit_diff_of_best)
     mu_r2_list.append(r2)
     mu_times.append(mu_time) 
+    best_perturbation_norm_list.append(best_perturb_norm)
 
 #Summary Results
 expgs_res = pd.DataFrame({
                     "mu_r2":mu_r2_list,"mu_time":mu_times, 
                     "mu_success":(np.array(mu_logit_diff_log)<-0.001).astype(int),
+                    "best_perturb_norm":best_perturbation_norm_list
                    })
 #expgs_res.to_csv("expgs_mnist_"+str(generation_num)+".csv",index=False)
 expgs_res.describe()
@@ -198,6 +270,7 @@ expgs_res.describe()
 logit_diff_log =[]
 r2_list = []
 times = [] #number of iterations taken to achieve the best mu for each image
+best_perturbation_norm_list = []
 image_count = 1
 for i in selected_image_indices:
     image = x_test[i]
@@ -215,28 +288,33 @@ for i in selected_image_indices:
     solution_log = ZOSLGH_d(iter_num=generation_num, f=calini_wagner_fit, 
                     init_x=np.array([0.0]*state_dim), 
                     init_sigma=0.1, beta=0.0001, 
-                    eta=0.001, sample_num=pop_size, gamma=0.995, epsilon=0.001)
-    [best_sol_time, r2, logit_diff] = evaluation(solution_log,image,mnist_nn,t,kappa=-0.001)
+                    eta=0.1/784, sample_num=pop_size, gamma=0.995, epsilon=0.001)
+    [best_sol_time, r2, logit_diff, best_perturb_norm] = evaluation(solution_log,image,mnist_nn,t,kappa=-0.001)
 
     #log results
     logit_diff_log.append(logit_diff)
     r2_list.append(r2)
     times.append(best_sol_time) 
+    best_perturbation_norm_list.append(best_perturb_norm)
 
 #Summary Results
 slgh_res = pd.DataFrame({
                          "r2":r2_list,"time to achieve best":times, 
                          "success":(np.array(logit_diff_log)<-0.001).astype(int),
-                         "time":times
+                         "time":times,
+                         "best_perturb_norm":best_perturbation_norm_list
                    })
 
 #slgh_res.to_csv("slgh_d_mnist_"+str(generation_num)+".csv",index=False)
 slgh_res.describe()
 
+
+
 #zoslgh_r - hardest attack
 logit_diff_log =[]
 r2_list = []
 times = [] #number of iterations taken to achieve the best mu for each image
+best_perturbation_norm_list = []
 image_count = 1
 for i in selected_image_indices:
     image = x_test[i]
@@ -255,26 +333,30 @@ for i in selected_image_indices:
                     init_x=np.array([0.0]*state_dim), 
                     init_sigma=0.1, beta=0.0001, 
                     sample_num=pop_size, gamma=0.995)
-    [best_sol_time, r2, logit_diff] = evaluation(solution_log,image,mnist_nn,t,kappa=-0.001)
+    [best_sol_time, r2, logit_diff, best_perturb_norm] = evaluation(solution_log,image,mnist_nn,t,kappa=-0.001)
 
     #log results
     logit_diff_log.append(logit_diff)
     r2_list.append(r2)
     times.append(best_sol_time) 
+    best_perturbation_norm_list.append(best_perturb_norm)
 
 #Summary Results
 slgh_res = pd.DataFrame({
                          "r2":r2_list,"time to achieve best":times, 
                          "success":(np.array(logit_diff_log)<-0.001).astype(int),
-                         "time":times
+                         "time":times,
+                         "best_perturb_norm":best_perturbation_norm_list
                    })
 #slgh_res.to_csv("slgh_r_mnist_"+str(generation_num)+".csv",index=False)
 slgh_res.describe()
+
 
 #ZO-AdaMM
 logit_diff_log =[]
 r2_list = []
 times = [] #number of iterations taken to achieve the best mu for each image
+best_perturbation_norm_list = []
 image_count = 1
 for i in selected_image_indices:
     image = x_test[i]
@@ -299,26 +381,31 @@ for i in selected_image_indices:
                             total_step_limit=generation_num 
                    )
     
-    [best_sol_time, r2, logit_diff] = evaluation(solution_log,image,mnist_nn,t,kappa=-0.001)
+    [best_sol_time, r2, logit_diff, best_perturb_norm] = evaluation(solution_log,image,mnist_nn,t,kappa=-0.001)
 
     #log results
     logit_diff_log.append(logit_diff)
     r2_list.append(r2)
     times.append(best_sol_time) 
+    best_perturbation_norm_list.append(best_perturb_norm)
 
 #Summary Results
 zoadamm_res = pd.DataFrame({
                          "r2":r2_list,"time to achieve best":times, 
                          "success":(np.array(logit_diff_log)<-0.001).astype(int),
-                         "time":times
+                         "time":times,
+                         "best_perturb_norm":best_perturbation_norm_list
                    })
 
 #zoadamm_res.to_csv("zoadamm_mnist_"+str(generation_num)+".csv",index=False)
 zoadamm_res.describe()
 
+
+#STD-Homotopy
 logit_diff_log =[]
 r2_list = []
 times = [] #number of iterations taken to achieve the best mu for each image
+best_perturbation_norm_list = []
 image_count = 1
 for i in selected_image_indices:
     image = x_test[i]
@@ -347,18 +434,20 @@ for i in selected_image_indices:
                     sigma_tolerance=10
                 )
 
-    [best_sol_time, r2, logit_diff] = evaluation(solution_log,image,mnist_nn,t,kappa=-0.001)
+    [best_sol_time, r2, logit_diff, best_perturb_norm] = evaluation(solution_log,image,mnist_nn,t,kappa=-0.001)
 
     #log results
     logit_diff_log.append(logit_diff)
     r2_list.append(r2)
     times.append(best_sol_time) 
+    best_perturbation_norm_list.append(best_perturb_norm)
 
 #Summary Results
 homotopy_opt_res = pd.DataFrame({
                          "r2":r2_list,"time to achieve best":times, 
                          "success":(np.array(logit_diff_log)<-0.001).astype(int),
-                         "time":times
+                         "time":times,
+                         "best_perturb_norm":best_perturbation_norm_list
                    })
 
 #homotopy_opt_res.to_csv("homotopy_opt_mnist_"+str(generation_num)+".csv",index=False)

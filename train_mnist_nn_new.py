@@ -25,7 +25,7 @@ class MNIST:
     def __init__(self):
 
         train_data = np.load(mnist_path+"x_train.npy")   #60000 train images (28x28)
-        train_data = ((train_data/255)-0.5).reshape([-1,28,28,1])
+        train_data = ((train_data-255/2)/(255/2)).reshape([-1,28,28,1])
         train_labels = tf.keras.utils.to_categorical(np.load(mnist_path+"y_train.npy"),10)
         self.test_data = np.load(mnist_path+"x_test.npy") #10000 test train images (28x28)
         self.test_data = ((self.test_data/255)-0.5).reshape([-1,28,28,1])
@@ -71,7 +71,7 @@ def train(data, file_name, params, num_epochs=50, batch_size=128, train_temp=1, 
     model.add(Dense(10))
     
     if init != None:
-        model.load_weights(init)
+        model.load_weights(init+".keras")
 
     def fn(correct, predicted):
         return tf.nn.softmax_cross_entropy_with_logits(labels=correct,
@@ -94,7 +94,7 @@ def train(data, file_name, params, num_epochs=50, batch_size=128, train_temp=1, 
     
 
     if file_name != None:
-        model.save(file_name)
+        model.save(file_name+".keras")
 
     return model
 

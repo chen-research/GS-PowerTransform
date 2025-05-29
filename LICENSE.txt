@@ -5,9 +5,9 @@ Copyright 2024 Chen Xu
 Original Code:
 The following codes are original:
   - Figure1.py
-  - Figure2-3.py
-  - Figure4a-Table1.py
-  - Figure4b-Table2.py
+  - Figure3-4.py
+  - Table1.py
+  - Table2.py
   - Homotopy_Methods.py
   - Smoothing_Methods.py
   - Objective_functions.py
