@@ -8,6 +8,8 @@ The following codes are original:
   - Figure3-4.py
   - Table1.py
   - Table2.py
+  - Table3.py
+  - Table4.py
   - Homotopy_Methods.py
   - Smoothing_Methods.py
   - Objective_functions.py
