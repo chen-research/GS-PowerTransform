@@ -1,4 +1,4 @@
-# Global Optimization with a Power-Transformed Objective and Gaussian Smoothing
+# Global Optimization with a Power-Transformed Objective and Gaussian Smoothing (Project Page)
 **Author:** Chen Xu
 
 ## Abstract
