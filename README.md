@@ -13,3 +13,6 @@ You can find the full paper at https://openreview.net/pdf?id=6ojzpDczIY .
 
 ## Code
 All the codes for the paper can be found in this repo.
+
+## Contact
+Chen Xu (chen_xu_research@outlook.com)
